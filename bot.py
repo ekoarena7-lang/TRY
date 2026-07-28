@@ -84,7 +84,7 @@ async def ask_language(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def handle_lang(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
-    await q.answer()
+    await query.answer()
     url = context.user_data.get("url", "")
     msg = await q.edit_message_text("Video hazirlanir...")
     with tempfile.TemporaryDirectory() as d:
