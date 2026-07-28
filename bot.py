@@ -9,18 +9,6 @@ import urllib.parse
 from io import BytesIO
 from dotenv import load_dotenv
 
-# Ensure root directory is in sys.path for core module imports
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-
-try:
-    from core.url_extractor import extract_transcript, detect_platform
-    from core.script_generator import generate_viral_script
-    from core.tts_engine import generate_speech_async
-    from core.visual_engine import generate_scene_image
-    from core.video_composer import compose_viral_video
-except ModuleNotFoundError:
-    pass
-
 import requests
 import yt_dlp
 from youtube_transcript_api import YouTubeTranscriptApi
