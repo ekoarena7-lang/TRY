@@ -8,6 +8,7 @@ import tempfile
 import urllib.parse
 from io import BytesIO
 from dotenv import load_dotenv
+
 import requests
 import yt_dlp
 from youtube_transcript_api import YouTubeTranscriptApi
@@ -15,16 +16,22 @@ import google.generativeai as genai
 import edge_tts
 from PIL import Image, ImageDraw, ImageFont
 from moviepy.editor import ImageClip, AudioFileClip, concatenate_videoclips
+
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, CallbackQueryHandler, filters, ContextTypes
+
 load_dotenv()
+
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 SUPADATA_API_KEY = os.getenv("SUPADATA_API_KEY")
 KIE_API_KEY = os.getenv("KIE_API_KEY")
+
 if GEMINI_API_KEY:
     genai.configure(api_key=GEMINI_API_KEY)
+
 logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO)
+
 # ==========================================
 # 1. URL EXTRACTOR MODULE
 # ==========================================
@@ -37,14 +44,17 @@ def detect_platform(url: str) -> str:
     elif "tiktok.com" in url_lower:
         return "tiktok"
     return "unknown"
+
 def extract_youtube_id(url: str) -> str:
     pattern = r"(?:v=|\/\|vi=|\/v\/|youtu\.be\/|\/shorts\/|\/embed\/)([a-zA-Z0-9_-]{11})"
     match = re.search(pattern, url)
     return match.group(1) if match else None
+
 def extract_transcript(url: str) -> dict:
     platform = detect_platform(url)
     content = ""
     title = f"{platform.capitalize()} Video Content"
+
     if platform == "youtube":
         video_id = extract_youtube_id(url)
         if video_id:
@@ -54,6 +64,7 @@ def extract_transcript(url: str) -> dict:
                 title = f"YouTube Short #{video_id}"
             except Exception as e:
                 logging.warning(f"YouTube transcript extraction warning: {e}")
+
     if not content and SUPADATA_API_KEY:
         try:
             headers = {"x-api-key": SUPADATA_API_KEY}
@@ -64,6 +75,7 @@ def extract_transcript(url: str) -> dict:
                 title = data.get("title") or title
         except Exception as e:
             logging.warning(f"Supadata API fallback warning: {e}")
+
     if not content:
         try:
             ydl_opts = {'skip_download': True, 'quiet': True}
@@ -74,33 +86,41 @@ def extract_transcript(url: str) -> dict:
                 content = f"Başlıq: {title}. Təsvir: {description[:500]}"
         except Exception as e:
             logging.warning(f"yt-dlp extraction warning: {e}")
+
     if not content or len(content.strip()) < 10:
         content = f"{platform.capitalize()} üzərində viral 9:16 video məzmunu: {url}"
+
     return {
         "platform": platform,
         "content": content,
         "title": title,
         "url": url
     }
+
 # ==========================================
 # 2. SCRIPT GENERATOR MODULE
 # ==========================================
 def generate_viral_script(extracted_info: dict, language: str = "az") -> dict:
     raw_content = extracted_info.get("content", "")
     title = extracted_info.get("title", "")
+
     lang_names = {
         "az": "Azərbaycan dili",
         "tr": "Türkçe",
         "en": "English"
     }
     target_lang_name = lang_names.get(language, "Türkçe")
+
     prompt = f"""
     Aşağıdakı video məzmununu analiz et və TikTok / YouTube Shorts / Instagram Reels üçün VIRAL 9:16 video ssenarisi hazırla:
+
     VİDEO MƏZMUNU:
     Başlıq: {title}
     Mətn: {raw_content[:2000]}
+
     ZORUNLU DİL: {target_lang_name} ({language.upper()})
     Tüm başlık, hook, anlatım mətni və subtitrlər strictly {target_lang_name} dilində yazılmalıdır.
+
     XAHİŞ OLUNUR AŞAĞIDAKIDAN İBARƏT STRICT JSON FORMATINDA CAVAB VER:
     {{
         "title": "Videonun cəlbedici başlığı ({target_lang_name})",
@@ -117,9 +137,11 @@ def generate_viral_script(extracted_info: dict, language: str = "az") -> dict:
     }}
     Yalnız JSON qaytar.
     """
+
     if not GEMINI_API_KEY:
         logging.warning("GEMINI_API_KEY missing. Returning fallback sample script.")
         return _fallback_script(title)
+
     try:
         model = genai.GenerativeModel("gemini-2.0-flash")
         response = model.generate_content(prompt)
@@ -129,10 +151,12 @@ def generate_viral_script(extracted_info: dict, language: str = "az") -> dict:
             text = re.search(r"```json\s*(.*?)\s*```", text, re.DOTALL).group(1)
         elif "```" in text:
             text = re.search(r"```\s*(.*?)\s*```", text, re.DOTALL).group(1)
+
         return json.loads(text)
     except Exception as e:
         logging.error(f"Gemini script generation error: {e}")
         return _fallback_script(title)
+
 def _fallback_script(title: str) -> dict:
     return {
         "title": f"Viral Video: {title[:30]}",
@@ -159,6 +183,7 @@ def _fallback_script(title: str) -> dict:
             }
         ]
     }
+
 # ==========================================
 # 3. TTS ENGINE MODULE
 # ==========================================
@@ -167,12 +192,14 @@ VOICE_MAPPING = {
     "tr": "tr-TR-AhmetNeural",
     "en": "en-US-ChristopherNeural"
 }
+
 async def generate_speech_async(text: str, output_path: str, lang: str = "az") -> str:
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
     voice = VOICE_MAPPING.get(lang, "az-AZ-BabekNeural")
     communicate = edge_tts.Communicate(text, voice)
     await communicate.save(output_path)
     return output_path
+
 # ==========================================
 # 4. VISUAL ENGINE MODULE
 # ==========================================
@@ -180,6 +207,7 @@ def generate_scene_image(prompt: str, output_path: str, width: int = 1080, heigh
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
     encoded_prompt = urllib.parse.quote(f"9:16 vertical format, {prompt}")
     pollinations_url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width={width}&height={height}&model=flux&seed=42&nologo=true"
+
     try:
         res = requests.get(pollinations_url, timeout=25)
         if res.status_code == 200 and len(res.content) > 5000:
@@ -188,6 +216,7 @@ def generate_scene_image(prompt: str, output_path: str, width: int = 1080, heigh
             return output_path
     except Exception as e:
         logging.warning(f"Pollinations AI image generation warning: {e}")
+
     if KIE_API_KEY:
         try:
             headers = {"Authorization": f"Bearer {KIE_API_KEY}", "Content-Type": "application/json"}
@@ -211,9 +240,11 @@ def generate_scene_image(prompt: str, output_path: str, width: int = 1080, heigh
                                     return output_path
         except Exception as e:
             logging.warning(f"Kie AI image fallback warning: {e}")
+
     img = Image.new('RGB', (width, height), color=(15, 23, 42))
     img.save(output_path)
     return output_path
+
 # ==========================================
 # 5. VIDEO COMPOSER MODULE
 # ==========================================
@@ -221,6 +252,7 @@ def add_subtitles_to_image(image_path: str, text: str, output_path: str, width: 
     img = Image.open(image_path).convert("RGB")
     img = img.resize((width, height), Image.Resampling.LANCZOS)
     draw = ImageDraw.Draw(img)
+
     try:
         font = ImageFont.truetype("arial.ttf", 54)
     except Exception:
@@ -228,6 +260,7 @@ def add_subtitles_to_image(image_path: str, text: str, output_path: str, width: 
             font = ImageFont.truetype("DejaVuSans-Bold.ttf", 54)
         except Exception:
             font = ImageFont.load_default()
+
     words = text.split()
     lines = []
     current_line = []
@@ -242,12 +275,14 @@ def add_subtitles_to_image(image_path: str, text: str, output_path: str, width: 
         lines.append(" ".join(current_line))
         
     formatted_text = "\n".join(lines)
+
     text_bbox = draw.multiline_textbbox((0, 0), formatted_text, font=font, align="center")
     text_w = text_bbox[2] - text_bbox[0]
     text_h = text_bbox[3] - text_bbox[1]
     
     x = (width - text_w) // 2
     y = height - text_h - 280
+
     padding = 24
     box = [x - padding, y - padding, x + text_w + padding, y + text_h + padding]
     
@@ -261,6 +296,7 @@ def add_subtitles_to_image(image_path: str, text: str, output_path: str, width: 
     
     img.convert("RGB").save(output_path)
     return output_path
+
 def compose_viral_video(script_data: dict, scene_image_paths: list, audio_path: str, output_mp4: str) -> str:
     os.makedirs(os.path.dirname(output_mp4), exist_ok=True)
     audio_clip = AudioFileClip(audio_path)
@@ -310,6 +346,7 @@ def compose_viral_video(script_data: dict, scene_image_paths: list, audio_path: 
                 os.remove(t_img)
                 
     return output_mp4
+
 # ==========================================
 # 6. TELEGRAM BOT HANDLERS
 # ==========================================
@@ -326,9 +363,11 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "💡 *Başlamaq üçün sadəcə videonun keçid linkini mənə göndərin!*"
     )
     await update.message.reply_text(welcome_text, parse_mode="Markdown")
+
 async def ask_language_preference(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_text = update.message.text.strip()
     context.user_data["pending_input"] = user_text
+
     keyboard = [
         [
             InlineKeyboardButton("🇹🇷 Türkçe", callback_data="lang_tr"),
@@ -337,44 +376,55 @@ async def ask_language_preference(update: Update, context: ContextTypes.DEFAULT_
         ]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
+
     await update.message.reply_text(
         "🌐 **Lütfən videonun və diktorun dilini seçin / Please select the language for the video:**",
         reply_markup=reply_markup,
         parse_mode="Markdown"
     )
+
 async def handle_language_selection(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
+
     selected_lang = query.data.replace("lang_", "")
     user_text = context.user_data.get("pending_input", "")
+
     if not user_text:
         await query.edit_message_text("❌ **Məlumat tapılmadı. Lütfən linki yenidən göndərin.**")
         return
+
     lang_labels = {
         "tr": "🇹🇷 Türkçe",
         "en": "🇬🇧 English",
         "az": "🇦🇿 Azərbaycan"
     }
+
     selected_label = lang_labels.get(selected_lang, selected_lang)
     status_msg = await query.edit_message_text(
         f"🌐 Dil seçildi: **{selected_label}**\n🔎 **URL təhlil edilir və məzmun oxunur...**",
         parse_mode="Markdown"
     )
+
     chat_id = update.effective_chat.id
+
     with tempfile.TemporaryDirectory() as temp_dir:
         try:
             extracted_info = extract_transcript(user_text)
+
             await status_msg.edit_text(
                 f"🧠 **AI Viral Ssenari ({selected_label}) hazırlanır...**",
                 parse_mode="Markdown"
             )
             script_data = generate_viral_script(extracted_info, language=selected_lang)
+
             await status_msg.edit_text(
                 f"🎙 **Diktor səsləndirməsi ({selected_label}) hazırlanır...**",
                 parse_mode="Markdown"
             )
             audio_path = os.path.join(temp_dir, "narration.mp3")
             await generate_speech_async(script_data.get("full_narration", ""), audio_path, lang=selected_lang)
+
             await status_msg.edit_text("🎨 **9:16 AI səhnə vizualları generasiya olunur...**", parse_mode="Markdown")
             scenes = script_data.get("scenes", [])
             scene_image_paths = []
@@ -384,9 +434,11 @@ async def handle_language_selection(update: Update, context: ContextTypes.DEFAUL
                 prompt = scene.get("image_prompt", "viral 9:16 scene")
                 generate_scene_image(prompt, img_path)
                 scene_image_paths.append(img_path)
+
             await status_msg.edit_text("🎬 **9:16 Video render edilir və subtitrlər montaj olunur...**", parse_mode="Markdown")
             output_video_path = os.path.join(temp_dir, "final_viral_short.mp4")
             compose_viral_video(script_data, scene_image_paths, audio_path, output_video_path)
+
             await status_msg.edit_text("🚀 **Video hazır oldu! Telegram çatına göndərilir...**", parse_mode="Markdown")
             
             caption = (
@@ -395,6 +447,7 @@ async def handle_language_selection(update: Update, context: ContextTypes.DEFAUL
                 f"🌐 **Dil:** {selected_label}\n\n"
                 f"🤖 *VidMaker Pro AI Generator ilə hazırlanmışdır.*"
             )
+
             with open(output_video_path, "rb") as video_file:
                 await context.bot.send_video(
                     chat_id=chat_id,
@@ -405,19 +458,24 @@ async def handle_language_selection(update: Update, context: ContextTypes.DEFAUL
                 )
                 
             await status_msg.delete()
+
         except Exception as e:
             logging.error(f"Error processing video: {e}", exc_info=True)
             await status_msg.edit_text(f"❌ **Xəta baş verdi:** {str(e)[:200]}")
+
 def main():
     if not TELEGRAM_BOT_TOKEN:
         print("Error: TELEGRAM_BOT_TOKEN is not set in environment variables.")
         print("Please set TELEGRAM_BOT_TOKEN in .env or master.env file.")
         return
+
     app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, ask_language_preference))
     app.add_handler(CallbackQueryHandler(handle_language_selection, pattern="^lang_"))
+
     print("🤖 AI Viral Video Telegram Bot is running...")
     app.run_polling()
+
 if __name__ == "__main__":
     main()
