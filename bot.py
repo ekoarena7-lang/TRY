@@ -1,12 +1,4 @@
-import os
-import sys
-import re
-import json
-import asyncio
-import logging
-import tempfile
-import urllib.parse
-import requests
+import os, sys, re, json, asyncio, logging, tempfile, urllib.parse, requests
 from io import BytesIO
 from dotenv import load_dotenv
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -14,54 +6,41 @@ from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, Cal
 from PIL import Image, ImageDraw, ImageFont
 from moviepy.editor import ImageClip, AudioFileClip, concatenate_videoclips
 import google.generativeai as genai
-import edge_tts
-import yt_dlp
-from youtube_transcript_api import YouTubeTranscriptApi
+import edge_tts, yt_dlp
 
 load_dotenv()
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-if GEMINI_API_KEY:
-    genai.configure(api_key=GEMINI_API_KEY)
-logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO)
+if GEMINI_API_KEY: genai.configure(api_key=GEMINI_API_KEY)
+logging.basicConfig(format="%(asctime)s - %(levelname)s - %(message)s", level=logging.INFO)
 
 def extract_transcript(url):
     try:
-        ydl_opts = {'skip_download': True, 'quiet': True}
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        with yt_dlp.YoutubeDL({'skip_download': True, 'quiet': True}) as ydl:
             info = ydl.extract_info(url, download=False)
-            return {"title": info.get('title', 'Video'), "content": info.get('description', '')[:500]}
-    except Exception as e:
-        return {"title": "Viral Short", "content": url}
+            return {"title": info.get('title', 'Video'), "content": info.get('description', '')[:300]}
+    except: return {"title": "Viral Short", "content": url}
 
-def generate_viral_script(info, lang="az"):
-    if not GEMINI_API_KEY:
-        return {"title": "Viral Short", "hook": "Bunu bilirdiniz?", "full_narration": "Bunu bilirdiniz? Dunyani deyisen sirr acildi!", "scenes": [{"text_segment": "Bunu bilirdiniz?", "image_prompt": "Futuristic discovery 9:16"}]}
+def generate_viral_script(info):
+    if not GEMINI_API_KEY: return {"title": info['title'], "full_narration": "Bunu bilirdiniz? Dunyani deyisen sirr acildi!", "scenes": [{"image_prompt": "Futuristic discovery 9:16"}]}
     try:
         model = genai.GenerativeModel("gemini-2.0-flash")
-        res = model.generate_content(f"Create 9:16 script in JSON with keys title, hook, full_narration, scenes (array of text_segment, image_prompt) for content: {info['title']} {info['content']}")
+        res = model.generate_content(f"JSON with keys title, full_narration, scenes:[image_prompt] for: {info['title']}")
         text = res.text.strip()
-        if "```json" in text:
-            text = re.search(r"```json\s*(.*?)\s*```", text, re.DOTALL).group(1)
-        elif "```" in text:
-            text = re.search(r"```\s*(.*?)\s*```", text, re.DOTALL).group(1)
+        if "```json" in text: text = re.search(r"```json\s*(.*?)\s*```", text, re.DOTALL).group(1)
         return json.loads(text)
-    except Exception as e:
-        return {"title": "Viral Short", "hook": "Bunu bilirdiniz?", "full_narration": "Bunu bilirdiniz? Dunyani deyisen sirr acildi!", "scenes": [{"text_segment": "Bunu bilirdiniz?", "image_prompt": "Futuristic discovery 9:16"}]}
+    except: return {"title": info['title'], "full_narration": "Bunu bilirdiniz? Dunyani deyisen sirr acildi!", "scenes": [{"image_prompt": "Futuristic discovery 9:16"}]}
 
 async def generate_speech_async(text, path):
     os.makedirs(os.path.dirname(path), exist_ok=True)
-    c = edge_tts.Communicate(text, "az-AZ-BabekNeural")
-    await c.save(path)
+    await edge_tts.Communicate(text, "az-AZ-BabekNeural").save(path)
 
 def generate_scene_image(prompt, path):
     os.makedirs(os.path.dirname(path), exist_ok=True)
     p = urllib.parse.quote(f"9:16 vertical, {prompt}")
     r = requests.get(f"https://image.pollinations.ai/prompt/{p}?width=1080&height=1920&nologo=true", timeout=20)
-    if r.status_code == 200 and len(r.content) > 5000:
-        Image.open(BytesIO(r.content)).save(path)
-    else:
-        Image.new('RGB', (1080, 1920), (15, 23, 42)).save(path)
+    if r.status_code == 200 and len(r.content) > 5000: Image.open(BytesIO(r.content)).save(path)
+    else: Image.new('RGB', (1080, 1920), (15, 23, 42)).save(path)
 
 def compose_viral_video(script, img_paths, audio_path, output_mp4):
     os.makedirs(os.path.dirname(output_mp4), exist_ok=True)
@@ -71,22 +50,14 @@ def compose_viral_video(script, img_paths, audio_path, output_mp4):
     final = concatenate_videoclips(clips, method="compose").set_audio(audio)
     final.write_videofile(output_mp4, fps=24, codec="libx264", audio_codec="aac", preset="ultrafast", logger=None)
     audio.close()
-    for c in clips:
-        c.close()
+    for c in clips: c.close()
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Salam! Video linki gonderin!")
 
-async def ask_language(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data["url"] = update.message.text.strip()
-    kb = [[InlineKeyboardButton("AZ Azerbaijan", callback_data="lang_az"), InlineKeyboardButton("TR Turkce", callback_data="lang_tr")]]
-    await update.message.reply_text("Dil secin:", reply_markup=InlineKeyboardMarkup(kb))
-
-async def handle_lang(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    q = update.callback_query
-    await q.answer()
-    url = context.user_data.get("url", "")
-    msg = await q.edit_message_text("Video hazirlanir...")
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    url = update.message.text.strip()
+    msg = await update.message.reply_text("⏳ Video hazirlanir, lutfen gozleyin...")
     with tempfile.TemporaryDirectory() as d:
         try:
             info = extract_transcript(url)
@@ -101,19 +72,16 @@ async def handle_lang(update: Update, context: ContextTypes.DEFAULT_TYPE):
             out_p = os.path.join(d, "out.mp4")
             compose_viral_video(script, img_paths, a_path, out_p)
             with open(out_p, "rb") as f:
-                await context.bot.send_video(chat_id=update.effective_chat.id, video=f, caption=script.get("title", "Video"))
+                await context.bot.send_video(chat_id=update.effective_chat.id, video=f, caption=f"🎬 {script.get('title', 'Video')}")
             await msg.delete()
         except Exception as e:
-            await msg.edit_text(f"Xeta: {str(e)[:100]}")
+            await msg.edit_text(f"❌ Xeta: {str(e)[:100]}")
 
 def main():
-    if not TELEGRAM_BOT_TOKEN:
-        print("TELEGRAM_BOT_TOKEN missing!")
-        return
+    if not TELEGRAM_BOT_TOKEN: return
     app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, ask_language))
-    app.add_handler(CallbackQueryHandler(handle_lang, pattern="^lang_"))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     print("Bot is running...")
     app.run_polling()
 
