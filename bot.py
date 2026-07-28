@@ -8,7 +8,7 @@ import tempfile
 import urllib.parse
 from io import BytesIO
 from dotenv import load_dotenv
-
+from core.url_extractor import extract_transcript
 import requests
 import yt_dlp
 from youtube_transcript_api import YouTubeTranscriptApi
