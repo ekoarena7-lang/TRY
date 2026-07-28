@@ -1,0 +1,16 @@
+{
+  "proje_adi": "AI_Viral_Video_Telegram_Bot",
+  "tanim": "TikTok, Instagram Reels ve YouTube Shorts linklerini 9:16 AI viral videolara ceviren Telegram Botu",
+  "kategori": "Video Otomasyonu & AI",
+  "versiyon": "1.0.0",
+  "bagimliliklar": [
+    "python-telegram-bot",
+    "edge-tts",
+    "google-generativeai",
+    "moviepy",
+    "pillow",
+    "yt-dlp",
+    "youtube-transcript-api"
+  ],
+  "calistirma_komutu": "python bot.py"
+}
