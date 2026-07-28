@@ -8,11 +8,18 @@ from dotenv import load_dotenv
 # Add current directory to top of sys.path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from core.url_extractor import extract_transcript
-from core.script_generator import generate_viral_script
-from core.tts_engine import generate_speech_async
-from core.visual_engine import generate_scene_image
-from core.video_composer import compose_viral_video
+try:
+    from core.url_extractor import extract_transcript
+    from core.script_generator import generate_viral_script
+    from core.tts_engine import generate_speech_async
+    from core.visual_engine import generate_scene_image
+    from core.video_composer import compose_viral_video
+except ModuleNotFoundError:
+    from url_extractor import extract_transcript
+    from script_generator import generate_viral_script
+    from tts_engine import generate_speech_async
+    from visual_engine import generate_scene_image
+    from video_composer import compose_viral_video
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, CallbackQueryHandler, filters, ContextTypes
